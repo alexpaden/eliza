@@ -273,7 +273,18 @@ export class TwitterInteractionClient {
                     );
 
                     const message = {
-                        content: { text: tweet.text },
+                        content: {
+                            text: tweet.text,
+                            attachments: tweet.photos.map((photo) => ({
+                                id: photo.id,
+                                url: photo.url,
+                                title: "",
+                                source: "twitter",
+                                description: "",
+                                text: "",
+                                contentType: "image/jpeg",
+                            })),
+                        },
                         agentId: this.runtime.agentId,
                         userId: userIdUUID,
                         roomId,
@@ -411,7 +422,7 @@ export class TwitterInteractionClient {
         });
 
         // Promise<"RESPOND" | "IGNORE" | "STOP" | null> {
-        if (shouldRespond !== "RESPOND") {
+        if (shouldRespond !== "RESPOND" && shouldRespond !== "IGNORE") {
             elizaLogger.log("Not responding to message");
             return { text: "Response Decision:", action: shouldRespond };
         }

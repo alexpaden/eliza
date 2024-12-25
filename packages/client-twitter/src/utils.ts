@@ -56,6 +56,7 @@ export async function buildConversationThread(
             return;
         }
 
+
         // Handle memory storage
         const memory = await client.runtime.messageManager.getMemoryById(
             stringToUuid(currentTweet.id + "-" + client.runtime.agentId)
@@ -81,6 +82,15 @@ export async function buildConversationThread(
                 agentId: client.runtime.agentId,
                 content: {
                     text: currentTweet.text,
+                    attachments: currentTweet.photos.map((photo) => ({
+                        id: photo.id,
+                        url: photo.url,
+                        title: "",
+                        source: "twitter",
+                        description: "",
+                        text: "",
+                        contentType: "image/jpeg",
+                    })),
                     source: "twitter",
                     url: currentTweet.permanentUrl,
                     inReplyTo: currentTweet.inReplyToStatusId
@@ -223,7 +233,6 @@ export async function sendTweet(
                 )
         );
         const body = await result.json();
-
         // if we have a response
         if (body?.data?.create_tweet?.tweet_results?.result) {
             // Parse the response
@@ -270,6 +279,7 @@ export async function sendTweet(
         },
         roomId,
         embedding: getEmbeddingZeroVector(),
+        attachments: content.attachments,
         createdAt: tweet.timestamp * 1000,
     }));
 
