@@ -26,6 +26,7 @@ import { RedisClient } from "@elizaos/adapter-redis";
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
 import { DirectClient } from "@elizaos/client-direct";
 import { imageGenerationPlugin } from "@elizaos/plugin-image-generation";
+import { imageDetectionPlugin } from "@elizaos/plugin-i-comicsans";
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
@@ -339,7 +340,8 @@ export async function createAgent(
         // character.plugins are handled when clients are added
         plugins: [
             bootstrapPlugin,
-            nodePlugin,
+            //nodePlugin,
+            imageDetectionPlugin,
             getSecret(character, "OPENAI_API_KEY")
                 ? imageGenerationPlugin
                 : null,
