@@ -273,6 +273,7 @@ export class TwitterInteractionClient {
                     );
 
                     const message = {
+                        id: stringToUuid(tweet.id + "-" + this.runtime.agentId),
                         content: {
                             text: tweet.text,
                             attachments: tweet.photos.map((photo) => ({
@@ -386,6 +387,7 @@ export class TwitterInteractionClient {
                           )
                         : undefined,
                 },
+                inReplyTo: tweet.inReplyToStatusId,
                 userId: userIdUUID,
                 roomId,
                 createdAt: tweet.timestamp * 1000,
@@ -472,19 +474,68 @@ export class TwitterInteractionClient {
                     state
                 )) as State;
 
+                // When processing responses, ensure we maintain the reply chain
                 for (const responseMessage of responseMessages) {
+                    // Create a copy of the response for the second action if needed
+                    let additionalResponse = null;
+
+                    // Add reply chain context to response
+                    responseMessage.content.inReplyTo = tweetId;
+                    responseMessage.content.replyChainInfo = {
+                        inReplyToTweetId: tweet.id,
+                        conversationId: tweet.conversationId,
+                        isPartOfThread: true,
+                        threadPosition: thread.length,
+                        threadLength: thread.length + 1,
+                    };
+
+                    elizaLogger.info("Creating response with reply chain:", {
+                        responseId: responseMessage.id,
+                        inReplyTo: responseMessage.content.inReplyTo,
+                        replyChainInfo: responseMessage.content.replyChainInfo,
+                    });
+                    // Check for photos and Ethereum address
                     if (
+                        message.content.attachments?.length > 0 &&
+                        /0x[a-fA-F0-9]{40}/.test(message.content.text)
+                    ) {
+                        additionalResponse = { ...responseMessage };
+                        responseMessage.content.action = "DETECT_COMIC_IMAGE";
+                        additionalResponse.content.action =
+                            "TRANSFER_COMIC_SANS";
+                    } else if (message.content.attachments?.length > 0) {
+                        responseMessage.content.action = "DETECT_COMIC_IMAGE";
+                    } else if (/0x[a-fA-F0-9]{40}/.test(message.content.text)) {
+                        responseMessage.content.action = "TRANSFER_COMIC_SANS";
+                    } else if (
                         responseMessage ===
                         responseMessages[responseMessages.length - 1]
                     ) {
                         responseMessage.content.action = response.action;
-                    } else {
-                        responseMessage.content.action = "CONTINUE";
                     }
+
                     await this.runtime.messageManager.createMemory(
                         responseMessage
                     );
+
+                    if (additionalResponse) {
+                        // Ensure additional response has the same reply chain info
+                        additionalResponse.content.inReplyTo = tweetId;
+                        additionalResponse.content.replyChainInfo =
+                            responseMessage.content.replyChainInfo;
+
+                        await this.runtime.messageManager.createMemory(
+                            additionalResponse
+                        );
+                        responseMessages.push(additionalResponse);
+                    }
                 }
+                console.log("XXXXX: ", message);
+                console.log("XXXXX: ", tweet);
+
+                message.content.inReplyTo = stringToUuid(
+                    tweet.inReplyToStatusId + "-" + this.runtime.agentId
+                );
 
                 await this.runtime.processActions(
                     message,
