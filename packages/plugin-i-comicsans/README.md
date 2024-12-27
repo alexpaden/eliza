@@ -53,6 +53,61 @@ A Comic Sans detection and reward plugin for the ElizaOS framework. This plugin 
 - **Reward**: 10 $COMICSANS per detected image
 - **Detection Threshold**: 85% confidence
 
+## Memory Structure
+
+The plugin stores Comic Sans detection results and reward status in the message memory:
+
+```typescript
+{
+  content: {
+    text: string,
+    attachments: Array<{
+      id: string,
+      url: string,
+      contentType: string,
+      // ... other metadata
+    }>,
+    comicSansDetection: {
+      detectedAt: number,          // Timestamp of detection
+      imagesWithComicSans: Array<{ // Array of detected images
+        url: string,
+        score: number
+      }>,
+      rewardAmount: number,        // Amount of tokens to reward
+      isPaidOut: boolean,          // Payment status
+      paidOutTx?: string,         // Transaction hash if paid
+      paidOutAt?: number,         // Payment timestamp
+      paidToAddress?: string      // Recipient address
+    }
+  }
+}
+```
+
+## Client Integration
+
+The plugin works with any ElizaOS client that properly populates the standard attachment format in message memories. For example, to add support to the Twitter client, we updated:
+
+- `utils.ts`: Added photo attachment mapping in `buildConversationThread()`
+- `interactions.ts`: Updated tweet processing to include media attachments
+
+Example attachment format:
+
+```typescript
+attachments: [
+    {
+        id: string,
+        url: string,
+        title: "",
+        source: "twitter", // or other client name
+        description: "",
+        text: "",
+        contentType: "image/jpeg",
+    },
+];
+```
+
+This standardized format allows the Comic Sans detector to work seamlessly across different clients (Twitter, Discord, etc.) as long as they properly populate the attachment metadata.
+
 ## Model Training & Development
 
 The Comic Sans detection model is available on Hugging Face and can be:
