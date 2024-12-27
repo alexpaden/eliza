@@ -196,9 +196,11 @@ const imageGeneration: Action = {
                 );
                 //res.push({ image: image, caption: caption.title });
 
+                const tweetId = message.roomId; // Assuming tweetId is part of message.content
+
                 callback(
                     {
-                        text: "...", //caption.description,
+                        text: `Generated image for room ID: ${tweetId}`, // Include tweet ID in the text
                         attachments: [
                             {
                                 id: crypto.randomUUID(),
