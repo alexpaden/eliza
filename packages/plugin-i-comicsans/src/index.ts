@@ -1,6 +1,6 @@
 import { Plugin } from "@elizaos/core";
-import { comnicImageDetection } from "./actions/imageDetection";
-import { transferComicSans } from "./actions/transfer";
+import { comnicImageDetection } from "./actions/detectComicSans";
+import { transferComicSans } from "./actions/transferComicSans";
 
 export const comicSansPlugin: Plugin = {
     name: "comicSansPlugin",
