@@ -128,7 +128,8 @@ export class TwitterInteractionClient {
             let uniqueTweetCandidates = [...mentionCandidates];
             // Only process target users if configured
             if (this.client.twitterConfig.TWITTER_TARGET_USERS.length) {
-                const TARGET_USERS = this.client.twitterConfig.TWITTER_TARGET_USERS;
+                const TARGET_USERS =
+                    this.client.twitterConfig.TWITTER_TARGET_USERS;
 
                 elizaLogger.log("Processing target users:", TARGET_USERS);
 
@@ -391,7 +392,8 @@ export class TwitterInteractionClient {
         }
 
         // get usernames into str
-        const validTargetUsersStr = this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
+        const validTargetUsersStr =
+            this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
 
         const shouldRespondContext = composeContext({
             state,
@@ -515,8 +517,8 @@ export class TwitterInteractionClient {
                         responseMessages.push(additionalResponse);
                     }
                 }
-                console.log("XXXXX: ", message);
-                console.log("XXXXX: ", tweet);
+                //console.log("XXXXX: ", message);
+                //console.log("XXXXX: ", tweet);
 
                 message.content.inReplyTo = stringToUuid(
                     tweet.inReplyToStatusId + "-" + this.runtime.agentId

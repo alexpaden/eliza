@@ -25,7 +25,6 @@ import {
 import { RedisClient } from "@elizaos/adapter-redis";
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
 import { DirectClient } from "@elizaos/client-direct";
-import { imageGenerationPlugin } from "@elizaos/plugin-image-generation";
 import { comicSansPlugin } from "@elizaos/plugin-i-comicsans";
 import Database from "better-sqlite3";
 import fs from "fs";
@@ -271,29 +270,19 @@ export async function initializeClients(
         }
     }
 
-    if (clientTypes.includes(Clients.FARCASTER)) {
-        // why is this one different :(
-        const farcasterClient = new FarcasterAgentClient(runtime);
-        if (farcasterClient) {
-            farcasterClient.start();
-            clients.farcaster = farcasterClient;
-        }
-    }
-    if (clientTypes.includes("lens")) {
-        const lensClient = new LensAgentClient(runtime);
-        lensClient.start();
-        clients.lens = lensClient;
-    }
+    // if (clientTypes.includes(Clients.FARCASTER)) {
+    //     // why is this one different :(
+    //     const farcasterClient = new FarcasterAgentClient(runtime);
+    //     if (farcasterClient) {
+    //         farcasterClient.start();
+    //         clients.farcaster = farcasterClient;
+    //     }
+    // }
 
     elizaLogger.log("client keys", Object.keys(clients));
 
     // TODO: Add Slack client to the list
     // Initialize clients as an object
-
-    if (clientTypes.includes("slack")) {
-        const slackClient = await SlackClientInterface.start(runtime);
-        if (slackClient) clients.slack = slackClient; // Use object property instead of push
-    }
 
     function determineClientType(client: Client): string {
         // Check if client has a direct type identifier

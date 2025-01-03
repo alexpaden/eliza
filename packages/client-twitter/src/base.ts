@@ -753,4 +753,10 @@ export class ClientBase extends EventEmitter {
             { expires: Date.now() + 10 * 1000 }
         );
     }
+
+    async getCachedTimeline(): Promise<Tweet[] | undefined> {
+        return await this.runtime.cacheManager.get<Tweet[]>(
+            `twitter/${this.profile.username}/timeline`
+        );
+    }
 }
