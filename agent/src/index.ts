@@ -12,7 +12,6 @@ import {
     elizaLogger,
     FsCacheAdapter,
     IAgentRuntime,
-    ICacheManager,
     IDatabaseAdapter,
     IDatabaseCacheAdapter,
     ModelProviderName,
@@ -21,6 +20,7 @@ import {
     validateCharacterConfig,
     CacheStore,
     Client,
+    ICacheManager,
 } from "@elizaos/core";
 import { RedisClient } from "@elizaos/adapter-redis";
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
@@ -32,6 +32,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import yargs from "yargs";
+import net from "net";
 
 const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file
 const __dirname = path.dirname(__filename); // get the name of the directory
@@ -148,6 +149,25 @@ export async function loadCharacters(
                 const character = JSON.parse(content);
                 validateCharacterConfig(character);
 
+                // .id isn't really valid
+                const characterId = character.id || character.name;
+                const characterPrefix = `CHARACTER.${characterId.toUpperCase().replace(/ /g, "_")}.`;
+
+                const characterSettings = Object.entries(process.env)
+                    .filter(([key]) => key.startsWith(characterPrefix))
+                    .reduce((settings, [key, value]) => {
+                        const settingKey = key.slice(characterPrefix.length);
+                        return { ...settings, [settingKey]: value };
+                    }, {});
+
+                if (Object.keys(characterSettings).length > 0) {
+                    character.settings = character.settings || {};
+                    character.settings.secrets = {
+                        ...characterSettings,
+                        ...character.settings.secrets,
+                    };
+                }
+
                 // Handle plugins
                 if (isAllStrings(character.plugins)) {
                     elizaLogger.info("Plugins are: ", character.plugins);
@@ -246,69 +266,67 @@ export async function initializeClients(
 
     if (clientTypes.includes(Clients.TWITTER)) {
         const twitterClient = await TwitterClientInterface.start(runtime);
-
         if (twitterClient) {
             clients.twitter = twitterClient;
-            (twitterClient as any).enableSearch = !isFalsish(
-                getSecret(character, "TWITTER_SEARCH_ENABLE")
-            );
         }
+    }
+
+    if (clientTypes.includes(Clients.FARCASTER)) {
+        // why is this one different :(
+        const farcasterClient = new FarcasterAgentClient(runtime);
+        if (farcasterClient) {
+            farcasterClient.start();
+            clients.farcaster = farcasterClient;
+        }
+    }
+    if (clientTypes.includes("lens")) {
+        const lensClient = new LensAgentClient(runtime);
+        lensClient.start();
+        clients.lens = lensClient;
     }
 
     elizaLogger.log("client keys", Object.keys(clients));
 
-    // Extend the base Client type
-    interface NamedClient extends Client {
-        name: string;
+    // TODO: Add Slack client to the list
+    // Initialize clients as an object
+
+    if (clientTypes.includes("slack")) {
+        const slackClient = await SlackClientInterface.start(runtime);
+        if (slackClient) clients.slack = slackClient; // Use object property instead of push
     }
 
-    // Update the plugin clients handling
+    function determineClientType(client: Client): string {
+        // Check if client has a direct type identifier
+        if ("type" in client) {
+            return (client as any).type;
+        }
+
+        // Check constructor name
+        const constructorName = client.constructor?.name;
+        if (constructorName && !constructorName.includes("Object")) {
+            return constructorName.toLowerCase().replace("client", "");
+        }
+
+        // Fallback: Generate a unique identifier
+        return `client_${Date.now()}`;
+    }
+
     if (character.plugins?.length > 0) {
         for (const plugin of character.plugins) {
             if (plugin.clients) {
                 for (const client of plugin.clients) {
-                    const startedClient = await (client as NamedClient).start(
-                        runtime
+                    const startedClient = await client.start(runtime);
+                    const clientType = determineClientType(client);
+                    elizaLogger.debug(
+                        `Initializing client of type: ${clientType}`
                     );
-                    if (startedClient && (client as NamedClient).name) {
-                        clients[(client as NamedClient).name] = startedClient;
-                    } else {
-                        elizaLogger.warn(
-                            "Client started but missing name property:",
-                            client
-                        );
-                    }
+                    clients[clientType] = startedClient;
                 }
             }
         }
     }
 
     return clients;
-}
-
-function isFalsish(input: any): boolean {
-    // If the input is exactly NaN, return true
-    if (Number.isNaN(input)) {
-        return true;
-    }
-
-    // Convert input to a string if it's not null or undefined
-    const value = input == null ? "" : String(input);
-
-    // List of common falsish string representations
-    const falsishValues = [
-        "false",
-        "0",
-        "no",
-        "n",
-        "off",
-        "null",
-        "undefined",
-        "",
-    ];
-
-    // Check if the value (trimmed and lowercased) is in the falsish list
-    return falsishValues.includes(value.trim().toLowerCase());
 }
 
 function getSecret(character: Character, secret: string) {
@@ -466,13 +484,30 @@ async function startAgent(
     }
 }
 
+const checkPortAvailable = (port: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+
+        server.once("error", (err: NodeJS.ErrnoException) => {
+            if (err.code === "EADDRINUSE") {
+                resolve(false);
+            }
+        });
+
+        server.once("listening", () => {
+            server.close();
+            resolve(true);
+        });
+
+        server.listen(port);
+    });
+};
+
 const startAgents = async () => {
     const directClient = new DirectClient();
-    const serverPort = parseInt(settings.SERVER_PORT || "3000");
+    let serverPort = parseInt(settings.SERVER_PORT || "3000");
     const args = parseArguments();
-
     let charactersArg = args.characters || args.character;
-
     let characters = [defaultCharacter];
 
     if (charactersArg) {
@@ -487,19 +522,32 @@ const startAgents = async () => {
         elizaLogger.error("Error starting agents:", error);
     }
 
+    // Find available port
+    while (!(await checkPortAvailable(serverPort))) {
+        elizaLogger.warn(
+            `Port ${serverPort} is in use, trying ${serverPort + 1}`
+        );
+        serverPort++;
+    }
+
     // upload some agent functionality into directClient
     directClient.startAgent = async (character: Character) => {
         // wrap it so we don't have to inject directClient later
         return startAgent(character, directClient);
     };
+
     directClient.start(serverPort);
 
+    if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
+        elizaLogger.log(`Server started on alternate port ${serverPort}`);
+    }
+
     elizaLogger.log(
-        "Run `pnpm start:client` to start the client and visit the outputted URL (http://localhost:5173) to chat with your agents"
+        "Run `pnpm start:client` to start the client and visit the outputted URL (http://localhost:5173) to chat with your agents. When running multiple agents, use client with different port `SERVER_PORT=3001 pnpm start:client`"
     );
 };
 
 startAgents().catch((error) => {
     elizaLogger.error("Unhandled error in startAgents:", error);
-    process.exit(1); // Exit the process after logging
+    process.exit(1);
 });
