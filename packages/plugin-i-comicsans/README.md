@@ -126,4 +126,4 @@ Check out the [model repository](https://huggingface.co/shoni/comic-sans-detecto
 
 ## License
 
-MIT
+MIT.
