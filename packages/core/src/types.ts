@@ -27,6 +27,9 @@ export interface Content {
     /** Array of media attachments */
     attachments?: Media[];
 
+    /** Array of image URLs */
+    imageUrls?: string[];
+
     /** Additional dynamic properties */
     [key: string]: unknown;
 }
