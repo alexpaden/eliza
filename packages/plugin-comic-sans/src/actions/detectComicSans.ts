@@ -14,7 +14,7 @@ const RETRY_DELAY = 12000; // 12 seconds
 // Helper function to wait
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const comnicImageDetection: Action = {
+export const comicImageDetection: Action = {
     name: "DETECT_COMIC_IMAGE",
     similes: [
         "CHECK_IMAGE",
@@ -44,7 +44,7 @@ export const comnicImageDetection: Action = {
         elizaLogger.log("Checking for images in message:", message);
         elizaLogger.log("Message content:", message.content);
 
-        const profile = await this.runtime.clients.twitterClient.getProfile(message.content.tweetUsername);
+        const profile = await runtime.clients.twitterClient.getProfile(message.content.tweetUsername);
         elizaLogger.log("Profile:", profile);
 
         // Get image URLs from current message
