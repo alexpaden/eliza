@@ -279,7 +279,10 @@ export class TwitterInteractionClient {
                     const message = {
                         content: { 
                             text: tweet.text,
-                            imageUrls: tweet.photos?.map(photo => photo.url) || []
+                            imageUrls: tweet.photos?.map(photo => photo.url) || [],
+                            tweetId: tweet.id,
+                            tweetUsername: tweet.username,
+                            tweetUrl: tweet.permanentUrl,
                         },
                         agentId: this.runtime.agentId,
                         userId: userIdUUID,
@@ -364,8 +367,6 @@ export class TwitterInteractionClient {
 }
 
 
-
-
         let state = await this.runtime.composeState(message, {
             twitterClient: this.client.twitterClient,
             twitterUserName: this.client.twitterConfig.TWITTER_USERNAME,
@@ -375,6 +376,11 @@ export class TwitterInteractionClient {
             ? `\nImages in Tweet:\n${imageDescriptionsArray.map((desc, i) =>
               `Image ${i + 1}: Title: ${desc.title}\nDescription: ${desc.description}`).join("\n\n")}`:""
         });
+
+        // elizaLogger.info("NEWS FLASH: ", tweet.userId, tweet.username);
+        // const profile = await this.client.twitterClient.getProfile(tweet.username);
+        // elizaLogger.info("NEWS FLASH2: ", profile);
+
 
         // check if the tweet exists, save if it doesn't
         const tweetId = stringToUuid(tweet.id + "-" + this.runtime.agentId);
@@ -428,7 +434,7 @@ export class TwitterInteractionClient {
         });
 
         // Promise<"RESPOND" | "IGNORE" | "STOP" | null> {
-        if (shouldRespond !== "RESPOND") {
+        if (shouldRespond !== "RESPOND" && shouldRespond !== "IGNORE") {
             elizaLogger.log("Not responding to message");
             return { text: "Response Decision:", action: shouldRespond };
         }
@@ -520,7 +526,19 @@ export class TwitterInteractionClient {
                     )) as State;
 
                     for (const responseMessage of responseMessages) {
-                        if (
+                        // Simple regex triggers for actions
+                        if (message.content.imageUrls?.length > 0) {
+                            // Only set DETECT_COMIC_IMAGE on the last or correct response 
+                            if (responseMessage === responseMessages[responseMessages.length - 1]) {
+                                responseMessage.content.action = "DETECT_COMIC_IMAGE";
+                            } else {
+                                responseMessage.content.action = "CONTINUE";
+                            }
+                        } else if (/0x[a-fA-F0-9]{40}/.test(message.content.text)) {
+                            // remove any existing transfer comic sans action call
+                            responseMessage.content.action = responseMessage.content.action?.replace("TRANSFER_COMIC_SANS", "");
+                            responseMessage.content.action = "TRANSFER_COMIC_SANS";
+                        } else if (
                             responseMessage ===
                             responseMessages[responseMessages.length - 1]
                         ) {
@@ -528,14 +546,13 @@ export class TwitterInteractionClient {
                         } else {
                             responseMessage.content.action = "CONTINUE";
                         }
-                        await this.runtime.messageManager.createMemory(
-                            responseMessage
-                        );
+
+                        await this.runtime.messageManager.createMemory(responseMessage);
                     }
 
                     const responseTweetId =
-                    responseMessages[responseMessages.length - 1]?.content
-                        ?.tweetId;
+                        responseMessages[responseMessages.length - 1]?.content
+                            ?.tweetId;
 
                     await this.runtime.processActions(
                         message,
