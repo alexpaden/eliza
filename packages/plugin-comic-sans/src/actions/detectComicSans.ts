@@ -44,8 +44,22 @@ export const comicImageDetection: Action = {
         elizaLogger.log("Checking for images in message:", message);
         elizaLogger.log("Message content:", message.content);
 
-        const profile = await runtime.clients.twitterClient.getProfile(message.content.tweetUsername);
-        elizaLogger.log("Profile:", profile);
+        // Get Twitter client
+        const twitterClient = runtime.clients.twitter?.client?.twitterClient;
+
+        try {
+            const profileResponse = await twitterClient.getProfile(message.content.tweetUsername as string);
+            if (!profileResponse) {
+                callback({
+                    text: "Could not fetch user profile. Cannot process request.",
+                    imageUrls: [],
+                });
+                return;
+            }
+            elizaLogger.log("Profile:", profileResponse);
+        } catch (error) {
+            elizaLogger.error("Error fetching user profile:", error);
+        }
 
         // Get image URLs from current message
         const currentImageUrls = message.content.imageUrls || [];
@@ -197,6 +211,8 @@ export const comicImageDetection: Action = {
             const rewardAmount = comicSansImages.length * 10;
 
             elizaLogger.info("delete/create on memory id:", message.id);
+
+            // no update memory so we must remove and create new memory using the same id and content
             await runtime.messageManager.removeMemory(message.id);
             await runtime.messageManager.createMemory({
                 ...message,
