@@ -5,7 +5,6 @@ import {
     type IAgentRuntime,
     type Memory,
     type State,
-    Plugin,
     elizaLogger,
     getEmbeddingZeroVector,
     stringToUuid,
