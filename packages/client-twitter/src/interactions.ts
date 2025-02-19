@@ -381,7 +381,6 @@ export class TwitterInteractionClient {
         // const profile = await this.client.twitterClient.getProfile(tweet.username);
         // elizaLogger.info("NEWS FLASH2: ", profile);
 
-
         // check if the tweet exists, save if it doesn't
         const tweetId = stringToUuid(tweet.id + "-" + this.runtime.agentId);
         const tweetExists =
@@ -535,9 +534,12 @@ export class TwitterInteractionClient {
                                 responseMessage.content.action = "CONTINUE";
                             }
                         } else if (/0x[a-fA-F0-9]{40}/.test(message.content.text)) {
-                            // remove any existing transfer comic sans action call
-                            responseMessage.content.action = responseMessage.content.action?.replace("TRANSFER_COMIC_SANS", "");
-                            responseMessage.content.action = "TRANSFER_COMIC_SANS";
+                            // Only set TRANSFER_COMIC_SANS on the last response
+                            if (responseMessage === responseMessages[responseMessages.length - 1]) {
+                                responseMessage.content.action = "TRANSFER_COMIC_SANS";
+                            } else {
+                                responseMessage.content.action = "CONTINUE";
+                            }
                         } else if (
                             responseMessage ===
                             responseMessages[responseMessages.length - 1]
