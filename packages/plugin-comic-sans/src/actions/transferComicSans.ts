@@ -8,6 +8,7 @@ import {
     Plugin,
     elizaLogger,
     getEmbeddingZeroVector,
+    stringToUuid,
 } from "@elizaos/core";
 import { base } from "viem/chains";
 
@@ -58,6 +59,8 @@ function initWalletProvider(runtime: IAgentRuntime) {
 }
 
 interface ComicSansDetection {
+    tweetId: string;
+    tweetUrl: string;
     detectedAt: number;
     imagesWithComicSans: Array<{ url: string; score: number }>;
     rewardAmount: number;
@@ -69,62 +72,8 @@ interface ComicSansDetection {
 
 interface ComicSansMemoryContent {
     text: string;
-    imageUrls?: string[];
-    comicSansDetection?: ComicSansDetection;
-}
-
-async function findOriginalComicSansMessage(
-    runtime: IAgentRuntime,
-    message: Memory
-): Promise<Memory | null> {
-    // User's ETH address reply -> Bot's Comic Sans detection -> Original image post
-    elizaLogger.info("Starting Comic Sans message search:", {
-        messageId: message.id,
-        text: message.content.text,
-    });
-
-    // 1. Get bot's response that user replied to
-    const botResponse = await runtime.messageManager.getMemoryById(
-        message.content.inReplyTo
-    );
-
-    if (!botResponse) {
-        elizaLogger.error(message);
-        console.log(message);
-        console.log(message.content.inReplyTo);
-        console.log(message.content);
-        elizaLogger.error("Could not find bot's response");
-        return null;
-    }
-
-    elizaLogger.info("Found bot response:", {
-        messageId: botResponse.id,
-        text: botResponse.content.text,
-        hasComicSans: !!botResponse.content.comicSansDetection,
-    });
-
-    // 2. Get original message that bot replied to
-    const originalMessage = await runtime.messageManager.getMemoryById(
-        botResponse.content.inReplyTo
-    );
-    if (!originalMessage) {
-        elizaLogger.error("Could not find original message");
-        return null;
-    }
-
-    elizaLogger.info("Found original message:", {
-        messageId: originalMessage.id,
-        text: originalMessage.content.text,
-        hasComicSans: !!originalMessage.content.comicSansDetection,
-    });
-    console.log("VVVVV: ", originalMessage);
-
-    // Return whichever message has the comic sans detection
-    return botResponse.content.comicSansDetection
-        ? botResponse
-        : originalMessage.content.comicSansDetection
-          ? originalMessage
-          : null;
+    comicSansDetections: ComicSansDetection[];
+    [key: string]: any; // Add index signature to match Content type
 }
 
 export const transferComicSans = {
@@ -170,12 +119,8 @@ export const transferComicSans = {
             const { walletClient, publicClient } = initWalletProvider(runtime);
             
             // 2. Extract wallet address from reply
-            const walletAddress =
-                message.content.text.match(/0x[a-fA-F0-9]{40}/)?.[0];
-            elizaLogger.log(
-                "Extracted wallet address:",
-                walletAddress || "No address found"
-            );
+            const walletAddress = message.content.text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+            elizaLogger.log("Extracted wallet address:", walletAddress || "No address found");
 
             if (!walletAddress) {
                 callback?.({
@@ -184,86 +129,68 @@ export const transferComicSans = {
                 return false;
             }
 
-            // 2. Find the original Comic Sans detection memory
-            elizaLogger.log(
-                "Looking up original memory:",
-                message.content.inReplyTo
-            );
-            const originalMemory = await findOriginalComicSansMessage(
-                runtime,
-                message
-            );
-
-            if (!originalMemory) {
-                elizaLogger.log("Original memory not found");
-                callback?.({
-                    text: "I couldn't find the original message in this conversation.",
-                });
+            // 3. Get Twitter client and fetch profile
+            const twitterClient = runtime.clients.twitter?.client?.twitterClient;
+            if (!twitterClient) {
+                callback?.({ text: "Twitter client not available." });
                 return false;
             }
 
-            const content = originalMemory.content as ComicSansMemoryContent;
+            let profileResponse;
+            try {
+                profileResponse = await twitterClient.getProfile(message.content.tweetUsername as string);
+                if (!profileResponse) {
+                    callback?.({ text: "Could not fetch user profile. Cannot process request." });
+                    return false;
+                }
+                elizaLogger.log("Profile:", profileResponse);
+            } catch (error) {
+                elizaLogger.error("Error fetching user profile:", error);
+                callback?.({ text: "Error fetching user profile." });
+                return false;
+            }
 
-            // 3. Check for Comic Sans detection
-            elizaLogger.log("Validating Comic Sans detection:", {
-                hasDetection: !!content.comicSansDetection,
-                userId: originalMemory.userId,
-                messageUserId: message.userId,
-                isPaidOut: content.comicSansDetection?.isPaidOut,
+            // 4. Get user's comic sans memory
+            const memoryId = stringToUuid(profileResponse.userId);
+            const userMemory = await runtime.messageManager.getMemoryById(memoryId);
+            
+            if (!userMemory) {
+                callback?.({ text: "No Comic Sans detections found for your account." });
+                return false;
+            }
+
+            const content = userMemory.content as unknown as ComicSansMemoryContent;
+            const unpaidDetections = content.comicSansDetections.filter(d => !d.isPaidOut);
+
+            if (unpaidDetections.length === 0) {
+                callback?.({ text: "No unpaid Comic Sans rewards found for your account." });
+                return false;
+            }
+
+            // 5. Process each unpaid detection
+            let successfulTransfers = 0;
+            let totalAmountTransferred = 0;
+            let failedTransfers = 0;
+
+            // Get initial nonce
+            let currentNonce = await publicClient.getTransactionCount({
+                address: walletClient.account.address,
             });
 
-            if (!content.comicSansDetection) {
-                callback?.({
-                    text: "I couldn't find any pending Comic Sans rewards for this conversation. Please share images with Comic Sans first!",
-                });
-                return false;
-            }
-
-            // 4. Verify same user
-            if (originalMemory.userId !== message.userId) {
-                callback?.({
-                    text: "Sorry, only the original poster can claim these rewards!",
-                });
-                return false;
-            }
-
-            // 5. Check if already paid
-            if (content.comicSansDetection?.isPaidOut) {
-                callback?.({
-                    text: "These rewards have already been claimed!",
-                    content: {
-                        error: "already_paid",
-                        paidOutTx: content.comicSansDetection.paidOutTx,
-                        paidOutAt: content.comicSansDetection.paidOutAt,
-                        paidToAddress: content.comicSansDetection.paidToAddress,
-                    },
-                });
-                return false;
-            }
-
-            const rewardAmount =
-                content.comicSansDetection.rewardAmount.toString();
-
-            elizaLogger.log("Sending token transfer transaction", {
-                token: COMIC_SANS_TOKEN,
-                recipient: walletAddress,
-                amount: rewardAmount,
-            });
-
-            let txHash: string | undefined;
-            // Attempt transaction with retry logic
-            for (let attempt = 0; attempt < 3; attempt++) {
+            for (const detection of unpaidDetections) {
                 try {
-                    const nonce = await publicClient.getTransactionCount({
-                        address: walletClient.account.address,
+                    elizaLogger.log("Processing transfer for detection:", {
+                        tweetId: detection.tweetId,
+                        amount: detection.rewardAmount,
+                        nonce: currentNonce,
                     });
 
-                    txHash = await walletClient.sendTransaction({
+                    const txHash = await walletClient.sendTransaction({
                         account: walletClient.account,
                         to: COMIC_SANS_TOKEN,
-                        data: `0xa9059cbb${walletAddress.slice(2).padStart(64, "0")}${parseEther(rewardAmount).toString(16).padStart(64, "0")}` as Hex,
+                        data: `0xa9059cbb${walletAddress.slice(2).padStart(64, "0")}${parseEther(detection.rewardAmount.toString()).toString(16).padStart(64, "0")}` as Hex,
                         chain: walletClient.chain,
-                        nonce,
+                        nonce: currentNonce++, // Increment nonce for next transaction
                         kzg: {
                             blobToKzgCommitment: function (
                                 _: Uint8Array
@@ -279,56 +206,59 @@ export const transferComicSans = {
                         },
                     });
 
-                    // If we get here, transaction was successful
-                    break;
-                } catch (txError) {
-                    elizaLogger.warn(
-                        `Transaction attempt ${attempt + 1} failed:`,
-                        txError
-                    );
-                    if (attempt === 2) throw txError; // Rethrow on final attempt
-                    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1s between attempts
+                    // Update memory for this specific detection
+                    detection.isPaidOut = true;
+                    detection.paidOutTx = txHash;
+                    detection.paidOutAt = Date.now();
+                    detection.paidToAddress = walletAddress;
+
+                    // Update memory after each successful transfer
+                    await runtime.messageManager.removeMemory(memoryId);
+                    await runtime.messageManager.createMemory({
+                        ...userMemory,
+                        embedding: getEmbeddingZeroVector(),
+                        content,
+                    });
+
+                    successfulTransfers++;
+                    totalAmountTransferred += detection.rewardAmount;
+                    
+                    elizaLogger.info("Successfully processed transfer:", {
+                        tweetId: detection.tweetId,
+                        txHash,
+                        amount: detection.rewardAmount,
+                    });
+                } catch (error) {
+                    elizaLogger.error("Transfer failed for detection:", {
+                        tweetId: detection.tweetId,
+                        error: error.message,
+                    });
+                    failedTransfers++;
                 }
             }
 
-            // Update memory regardless of transaction status
-            await runtime.messageManager.removeMemory(originalMemory.id);
-            await runtime.messageManager.createMemory({
-                ...originalMemory,
-                embedding: getEmbeddingZeroVector(),
-                content: {
-                    ...content,
-                    comicSansDetection: {
-                        ...content.comicSansDetection,
-                        isPaidOut: true,
-                        paidOutTx: txHash,
-                        paidOutAt: Date.now(),
-                        paidToAddress: walletAddress,
-                    },
-                },
-            });
-
-            // Only show success message if we got a transaction hash
-            if (txHash) {
+            // 6. Send summary response
+            if (successfulTransfers > 0) {
                 callback?.({
-                    text: `🎉 Successfully sent ${rewardAmount} $COMICSANS to ${walletAddress}!\n\nView transaction: https://basescan.org/tx/${txHash}`,
-                    content: {
-                        success: true,
-                        hash: txHash,
-                        amount: rewardAmount,
-                        recipient: walletAddress,
-                    },
+                    text: `🎉 Successfully sent ${totalAmountTransferred} $COMICSANS to ${walletAddress}!\n\n` +
+                         `Processed ${successfulTransfers} reward${successfulTransfers !== 1 ? 's' : ''}` +
+                         (failedTransfers > 0 ? ` (${failedTransfers} failed)` : '') +
+                         `\n\nView your transactions on Basescan!`,
                 });
                 return true;
+            } else {
+                callback?.({
+                    text: `❌ Failed to process any transfers. Please try again later.`,
+                });
+                return false;
             }
         } catch (error) {
-            elizaLogger.error("Transfer failed:", {
+            elizaLogger.error("Transfer process failed:", {
                 error: error.message,
                 stack: error.stack,
             });
             callback?.({
-                text: `Sorry, there was an error sending your rewards: ${error.message}`,
-                content: { error: error.message },
+                text: `Sorry, there was an error processing your rewards: ${error.message}`,
             });
             return false;
         }
